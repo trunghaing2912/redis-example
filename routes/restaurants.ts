@@ -6,6 +6,9 @@ import { RestaurantSchema, type Restaurant } from "../schemas/restaurant.js";
 import { ReviewSchema, type Review } from "../schemas/review.js";
 import { initializeRedisClient } from "../utils/client.js";
 import {
+  cuisineKey,
+  cuisinesKey,
+  restaurantCuisineKeyById,
   restaurantKeyById,
   reviewDetailsKeyById,
   reviewKeyById,
@@ -14,6 +17,7 @@ import { errorResponse, successResponse } from "../utils/responses.js";
 
 const router = express.Router();
 
+// Create a new restaurant
 router.post("/", validate(RestaurantSchema), async (req, res, next) => {
   const data = req.body as Restaurant;
   try {
@@ -21,8 +25,16 @@ router.post("/", validate(RestaurantSchema), async (req, res, next) => {
     const id = nanoid();
     const restaurantKey = restaurantKeyById(id);
     const hashData = { id, name: data.name, location: data.location };
-    const addResult = await client.hSet(restaurantKey, hashData);
-    console.log(`Added ${addResult}`);
+    await Promise.all([
+      ...data.cuisines.map((cuisine) =>
+        Promise.all([
+          client.sAdd(cuisinesKey, cuisine),
+          client.sAdd(cuisineKey(cuisine), id),
+          client.sAdd(restaurantCuisineKeyById(id), cuisine),
+        ])
+      ),
+      client.hSet(restaurantKey, hashData),
+    ]);
 
     return successResponse(res, hashData, "Added new restaurant");
   } catch (error) {
@@ -30,6 +42,7 @@ router.post("/", validate(RestaurantSchema), async (req, res, next) => {
   }
 });
 
+// Create a new review in a restaurant by Id
 router.post(
   "/:restaurantId/reviews",
   checkRestaurantExists,
@@ -62,6 +75,7 @@ router.post(
   }
 );
 
+// Get all review in a restaurantby Id
 router.get(
   "/:restaurantId/reviews",
   checkRestaurantExists,
@@ -86,6 +100,7 @@ router.get(
   }
 );
 
+// Delete a review by Id
 router.delete(
   "/:restaurantId/reviews/:reviewId",
   checkRestaurantExists,
@@ -116,6 +131,7 @@ router.delete(
   }
 );
 
+// Get restaurant by Id
 router.get(
   "/:restaurantId",
   checkRestaurantExists,
@@ -125,12 +141,13 @@ router.get(
     try {
       const client = await initializeRedisClient();
       const restaurantKey = restaurantKeyById(restaurantId);
-      const [viewCount, restaurant] = await Promise.all([
+      const [viewCount, restaurant, cuisine] = await Promise.all([
         client.hIncrBy(restaurantKey, "viewCount", 1),
         client.hGetAll(restaurantKey),
+        client.sMembers(restaurantCuisineKeyById(restaurantId)),
       ]);
 
-      return successResponse(res, restaurant);
+      return successResponse(res, { ...restaurant, cuisine });
     } catch (error) {
       next(error);
     }
