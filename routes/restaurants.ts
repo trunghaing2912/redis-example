@@ -18,6 +18,7 @@ import { errorResponse, successResponse } from "../utils/responses.js";
 
 const router = express.Router();
 
+// Get all restaurants with rating
 router.get("/", async (req, res, next) => {
   const { page = 1, limit = 10 } = req.query;
   const start = (Number(page) - 1) * Number(limit);
